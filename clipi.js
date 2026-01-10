@@ -4,7 +4,7 @@ import http from 'http';
 import https from 'https';
 import net from 'net';
 import { parse as parseUrl } from 'url';
-import { createInterface } from 'readline';
+import prompts from 'prompts';
 import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdirSync } from 'fs';
 import { tmpdir, homedir } from 'os';
 import { spawnSync } from 'child_process';
@@ -172,13 +172,13 @@ class CLIPI {
 
     if (this.interceptMode) {
       const result = await this.interceptRequest(clientReq, requestBody, hostname, path);
-      
+
       if (result.action === 'drop') {
         clientRes.writeHead(403);
         clientRes.end('Request blocked by proxy');
         return;
       }
-      
+
       if (result.action === 'modify') {
         method = result.data.method;
         finalPath = result.data.path;
@@ -251,13 +251,13 @@ class CLIPI {
   handleHTTPS(req, clientSocket, head) {
     const { port, hostname } = parseUrl(`//${req.url}`, false, true);
     const targetPort = port || 443;
-    
+
     console.log(`${this.cli.color.cyan('[HTTPS]')} CONNECT ${hostname}:${targetPort}`);
 
     clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
 
     const cert = this.generateCertificate(hostname);
-    
+
     const httpsServer = https.createServer(
       { key: cert.key, cert: cert.cert },
       (req, res) => {
@@ -271,7 +271,7 @@ class CLIPI {
     });
 
     httpsServer.emit('connection', clientSocket);
-    
+
     if (head && head.length > 0) {
       clientSocket.unshift(head);
     }
@@ -280,18 +280,18 @@ class CLIPI {
   serializeRequest(method, hostname, path, headers, body) {
     let raw = `${method} ${path} HTTP/1.1\r\n`;
     raw += `Host: ${hostname}\r\n`;
-    
+
     Object.entries(headers).forEach(([key, value]) => {
       if (key.toLowerCase() !== 'host') {
         raw += `${key}: ${value}\r\n`;
       }
     });
-    
+
     raw += '\r\n';
     if (body) {
       raw += body;
     }
-    
+
     return raw;
   }
 
@@ -300,7 +300,7 @@ class CLIPI {
     const firstLine = lines[0].split(' ');
     const method = firstLine[0];
     const path = firstLine[1];
-    
+
     const headers = {};
     let i = 1;
     for (; i < lines.length; i++) {
@@ -310,32 +310,32 @@ class CLIPI {
         headers[key.trim()] = valueParts.join(':').trim();
       }
     }
-    
+
     const body = lines.slice(i + 1).join('\r\n');
-    
+
     return { method, path, headers, body };
   }
 
   openEditor(content) {
     const editor = process.env.EDITOR || process.env.VISUAL || 'vim';
     const tmpFile = join(tmpdir(), `clipi-request-${Date.now()}.txt`);
-    
+
     try {
       writeFileSync(tmpFile, content);
-      
+
       const result = spawnSync(editor, [tmpFile], {
         stdio: 'inherit',
         shell: true
       });
-      
+
       if (result.error) {
         console.log(`${this.cli.color.red('[!]')} Error opening editor: ${result.error.message}`);
         return null;
       }
-      
+
       const modified = readFileSync(tmpFile, 'utf-8');
       unlinkSync(tmpFile);
-      
+
       return modified;
     } catch (err) {
       console.log(`${this.cli.color.red('[!]')} Error: ${err.message}`);
@@ -348,52 +348,66 @@ class CLIPI {
 
   async interceptRequest(req, body, hostname, path) {
     console.log(`\n${this.cli.color.yellow('╔═══ REQUEST INTERCEPTED ═══╗')}`);
-    console.log(`${this.cli.color.yellow('Method:')} ${req.method}`);
-    console.log(`${this.cli.color.yellow('URL:')} ${hostname}${path}`);
-    console.log(`${this.cli.color.yellow('Headers:')}`);
-    Object.entries(req.headers).forEach(([key, value]) => {
-      console.log(`  ${key}: ${value}`);
-    });
-    if (body) {
-      console.log(`${this.cli.color.yellow('Body:')}\n${body.substring(0, 300)}`);
+    console.log(`${this.cli.color.yellow('║')} ${this.cli.color.bold('Method:')} ${req.method}`);
+    console.log(`${this.cli.color.yellow('║')} ${this.cli.color.bold('URL:')} ${hostname}${path}`);
+    
+    if (this.verbose) {
+      console.log(`${this.cli.color.yellow('║')} ${this.cli.color.bold('Headers:')}`);
+      Object.entries(req.headers).forEach(([key, value]) => {
+        console.log(`${this.cli.color.yellow('║')}   ${key}: ${value}`);
+      });
+      if (body) {
+        console.log(`${this.cli.color.yellow('║')} ${this.cli.color.bold('Body:')}`);
+        console.log(`${this.cli.color.yellow('║')}   ${body.substring(0, 200)}`);
+      }
     }
+    
     console.log(`${this.cli.color.yellow('╚═══════════════════════════╝')}\n`);
 
-    const rl = createInterface({
-      input: process.stdin,
-      output: process.stdout
+    const response = await prompts({
+      type: 'select',
+      name: 'action',
+      message: 'Choose action:',
+      choices: [
+        { title: '→ Forward', description: 'Send request as-is', value: 'forward' },
+        { title: '✎ Modify', description: 'Edit request in editor', value: 'modify' },
+        { title: '✗ Drop', description: 'Block this request', value: 'drop' }
+      ],
+      initial: 0
     });
 
-    return new Promise((resolve) => {
-      rl.question(`${this.cli.color.cyan('[f]orward, [d]rop, [m]odify: ')}`, (answer) => {
-        rl.close();
-        
-        if (answer.toLowerCase() === 'd') {
-          console.log(`${this.cli.color.red('[x] Request dropped')}\n`);
-          resolve({ action: 'drop' });
-        } else if (answer.toLowerCase() === 'm') {
-          const rawRequest = this.serializeRequest(req.method, hostname, path, req.headers, body);
-          const modified = this.openEditor(rawRequest);
-          
-          if (modified) {
-            try {
-              const parsed = this.parseModifiedRequest(modified);
-              console.log(`${this.cli.color.green('[✓] Request modified')}\n`);
-              resolve({ action: 'modify', data: parsed });
-            } catch (err) {
-              console.log(`${this.cli.color.red('[!] Invalid request format, forwarding original')}\n`);
-              resolve({ action: 'forward' });
-            }
-          } else {
-            console.log(`${this.cli.color.yellow('[!] Editor closed, forwarding original')}\n`);
-            resolve({ action: 'forward' });
-          }
-        } else {
-          console.log(`${this.cli.color.green('[→] Request forwarded')}\n`);
-          resolve({ action: 'forward' });
+    // Si el usuario cancela con Ctrl+C
+    if (!response.action) {
+      console.log(`${this.cli.color.yellow('[!] Cancelled, forwarding request')}\n`);
+      return { action: 'forward' };
+    }
+
+    if (response.action === 'drop') {
+      console.log(`${this.cli.color.red('[✗] Request dropped')}\n`);
+      return { action: 'drop' };
+    }
+
+    if (response.action === 'modify') {
+      const rawRequest = this.serializeRequest(req.method, hostname, path, req.headers, body);
+      const modified = this.openEditor(rawRequest);
+
+      if (modified) {
+        try {
+          const parsed = this.parseModifiedRequest(modified);
+          console.log(`${this.cli.color.green('[✓] Request modified')}\n`);
+          return { action: 'modify', data: parsed };
+        } catch (err) {
+          console.log(`${this.cli.color.red('[!] Invalid request format, forwarding original')}\n`);
+          return { action: 'forward' };
         }
-      });
-    });
+      } else {
+        console.log(`${this.cli.color.yellow('[!] Editor closed, forwarding original')}\n`);
+        return { action: 'forward' };
+      }
+    }
+
+    console.log(`${this.cli.color.green('[→] Request forwarded')}\n`);
+    return { action: 'forward' };
   }
 
   showHistory() {
