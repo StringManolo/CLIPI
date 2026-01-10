@@ -1,4 +1,4 @@
-![CLIPI](repo_assets/CLIPI_image.png)
+![CLIPI](repo_assets/CLIPI_transparent.png)
 
 A lightweight HTTP/HTTPS proxy interceptor for security testing and debugging, inspired by Burp Suite but designed for the command line.
 
