@@ -1,0 +1,29 @@
+{
+  "name": "clipi",
+  "version": "1.0.0",
+  "description": "CLI Proxy Interceptor",
+  "keywords": [
+    "Proxy",
+    "Interceptor",
+    "CLI"
+  ],
+  "homepage": "https://github.com/StringManolo/CLIPI#readme",
+  "bugs": {
+    "url": "https://github.com/StringManolo/CLIPI/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/StringManolo/CLIPI.git"
+  },
+  "license": "ISC",
+  "author": "StringManolo",
+  "type": "module",
+  "main": "clipi.js",
+  "scripts": {
+    "start": "node clipi.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "simpleargumentsparser": "^2.0.0"
+  }
+}
