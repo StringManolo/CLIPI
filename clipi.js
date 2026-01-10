@@ -5,10 +5,11 @@ import https from 'https';
 import net from 'net';
 import { parse as parseUrl } from 'url';
 import { createInterface } from 'readline';
-import { writeFileSync, readFileSync, unlinkSync } from 'fs';
-import { tmpdir } from 'os';
+import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdirSync } from 'fs';
+import { tmpdir, homedir } from 'os';
 import { spawnSync } from 'child_process';
 import { join } from 'path';
+import forge from 'node-forge';
 import parseCLI from 'simpleargumentsparser';
 
 class CLIPI {
@@ -20,6 +21,98 @@ class CLIPI {
     this.requestCount = 0;
     this.history = [];
     this.cli = options.cli;
+    this.certCache = new Map();
+    this.certDir = join(homedir(), '.clipi', 'certs');
+    this.ca = this.loadOrCreateCA();
+  }
+
+  loadOrCreateCA() {
+    if (!existsSync(this.certDir)) {
+      mkdirSync(this.certDir, { recursive: true });
+    }
+
+    const caKeyPath = join(this.certDir, 'ca-key.pem');
+    const caCertPath = join(this.certDir, 'ca-cert.pem');
+
+    if (existsSync(caKeyPath) && existsSync(caCertPath)) {
+      return {
+        key: readFileSync(caKeyPath, 'utf8'),
+        cert: readFileSync(caCertPath, 'utf8')
+      };
+    }
+
+    console.log(`${this.cli.color.yellow('[*]')} Generating CA certificate...`);
+
+    const keys = forge.pki.rsa.generateKeyPair(2048);
+    const cert = forge.pki.createCertificate();
+
+    cert.publicKey = keys.publicKey;
+    cert.serialNumber = '01';
+    cert.validity.notBefore = new Date();
+    cert.validity.notAfter = new Date();
+    cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 10);
+
+    const attrs = [
+      { name: 'commonName', value: 'CLIPI CA' },
+      { name: 'countryName', value: 'US' },
+      { name: 'organizationName', value: 'CLIPI Proxy' }
+    ];
+
+    cert.setSubject(attrs);
+    cert.setIssuer(attrs);
+    cert.setExtensions([
+      { name: 'basicConstraints', cA: true },
+      { name: 'keyUsage', keyCertSign: true, digitalSignature: true, keyEncipherment: true }
+    ]);
+
+    cert.sign(keys.privateKey, forge.md.sha256.create());
+
+    const pemKey = forge.pki.privateKeyToPem(keys.privateKey);
+    const pemCert = forge.pki.certificateToPem(cert);
+
+    writeFileSync(caKeyPath, pemKey);
+    writeFileSync(caCertPath, pemCert);
+
+    console.log(`${this.cli.color.green('[✓]')} CA certificate created at: ${this.cli.color.cyan(this.certDir)}`);
+    console.log(`${this.cli.color.yellow('[!]')} Install ca-cert.pem on your device to intercept HTTPS`);
+
+    return { key: pemKey, cert: pemCert };
+  }
+
+  generateCertificate(hostname) {
+    if (this.certCache.has(hostname)) {
+      return this.certCache.get(hostname);
+    }
+
+    const caKey = forge.pki.privateKeyFromPem(this.ca.key);
+    const caCert = forge.pki.certificateFromPem(this.ca.cert);
+
+    const keys = forge.pki.rsa.generateKeyPair(2048);
+    const cert = forge.pki.createCertificate();
+
+    cert.publicKey = keys.publicKey;
+    cert.serialNumber = Math.floor(Math.random() * 100000).toString();
+    cert.validity.notBefore = new Date();
+    cert.validity.notAfter = new Date();
+    cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 1);
+
+    cert.setSubject([{ name: 'commonName', value: hostname }]);
+    cert.setIssuer(caCert.subject.attributes);
+    cert.setExtensions([
+      { name: 'basicConstraints', cA: false },
+      { name: 'keyUsage', digitalSignature: true, keyEncipherment: true },
+      { name: 'subjectAltName', altNames: [{ type: 2, value: hostname }] }
+    ]);
+
+    cert.sign(caKey, forge.md.sha256.create());
+
+    const pemKey = forge.pki.privateKeyToPem(keys.privateKey);
+    const pemCert = forge.pki.certificateToPem(cert);
+
+    const result = { key: pemKey, cert: pemCert };
+    this.certCache.set(hostname, result);
+
+    return result;
   }
 
   start() {
@@ -42,16 +135,24 @@ class CLIPI {
     });
   }
 
-  async handleHTTP(clientReq, clientRes) {
+  async handleHTTP(clientReq, clientRes, isHttps = false, httpsHost = null, httpsPort = null) {
     this.requestCount++;
     const reqId = this.requestCount;
 
     const targetUrl = parseUrl(clientReq.url);
-    const hostname = clientReq.headers.host?.split(':')[0] || targetUrl.hostname;
-    const port = clientReq.headers.host?.split(':')[1] || 80;
-    const path = targetUrl.path || '/';
+    let hostname, port, path;
 
-    console.log(`${this.cli.color.bold(`[${reqId}]`)} ${clientReq.method} ${this.cli.color.blue(`${hostname}${path}`)}`);
+    if (isHttps) {
+      hostname = httpsHost;
+      port = httpsPort;
+      path = clientReq.url;
+    } else {
+      hostname = clientReq.headers.host?.split(':')[0] || targetUrl.hostname;
+      port = clientReq.headers.host?.split(':')[1] || 80;
+      path = targetUrl.path || '/';
+    }
+
+    console.log(`${this.cli.color.bold(`[${reqId}]`)} ${clientReq.method} ${this.cli.color.blue(`${hostname}${path}`)} ${isHttps ? this.cli.color.magenta('[HTTPS]') : ''}`);
 
     let requestBody = '';
     clientReq.on('data', chunk => {
@@ -62,8 +163,12 @@ class CLIPI {
 
     let method = clientReq.method;
     let finalPath = path;
-    let headers = clientReq.headers;
+    let headers = { ...clientReq.headers };
     let body = requestBody;
+
+    if (isHttps) {
+      headers.host = hostname;
+    }
 
     if (this.interceptMode) {
       const result = await this.interceptRequest(clientReq, requestBody, hostname, path);
@@ -97,7 +202,9 @@ class CLIPI {
       headers: headers
     };
 
-    const proxyReq = http.request(options, (proxyRes) => {
+    const makeRequest = isHttps ? https.request : http.request;
+
+    const proxyReq = makeRequest(options, (proxyRes) => {
       let responseBody = '';
       proxyRes.on('data', chunk => {
         responseBody += chunk.toString();
@@ -115,7 +222,8 @@ class CLIPI {
           status: proxyRes.statusCode,
           requestHeaders: clientReq.headers,
           responseHeaders: proxyRes.headers,
-          timestamp: new Date().toISOString()
+          timestamp: new Date().toISOString(),
+          https: isHttps
         });
 
         if (this.verbose) {
@@ -142,20 +250,31 @@ class CLIPI {
 
   handleHTTPS(req, clientSocket, head) {
     const { port, hostname } = parseUrl(`//${req.url}`, false, true);
+    const targetPort = port || 443;
     
-    console.log(`${this.cli.color.cyan('[HTTPS]')} CONNECT ${hostname}:${port || 443}`);
+    console.log(`${this.cli.color.cyan('[HTTPS]')} CONNECT ${hostname}:${targetPort}`);
 
-    const serverSocket = net.connect(port || 443, hostname, () => {
-      clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-      serverSocket.write(head);
-      serverSocket.pipe(clientSocket);
-      clientSocket.pipe(serverSocket);
-    });
+    clientSocket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
 
-    serverSocket.on('error', (err) => {
-      console.error(`${this.cli.color.red('[!]')} HTTPS tunnel error: ${err.message}`);
+    const cert = this.generateCertificate(hostname);
+    
+    const httpsServer = https.createServer(
+      { key: cert.key, cert: cert.cert },
+      (req, res) => {
+        this.handleHTTP(req, res, true, hostname, targetPort);
+      }
+    );
+
+    httpsServer.once('error', (err) => {
+      console.error(`${this.cli.color.red('[!]')} HTTPS server error: ${err.message}`);
       clientSocket.end();
     });
+
+    httpsServer.emit('connection', clientSocket);
+    
+    if (head && head.length > 0) {
+      clientSocket.unshift(head);
+    }
   }
 
   serializeRequest(method, hostname, path, headers, body) {
@@ -346,8 +465,8 @@ async function main() {
   };
 
   console.log(`${cli.color.cyan('╔═══════════════════════════════════════╗')}`);
-  console.log(`${cli.color.cyan('║')}             ${cli.color.bold.white('CLIPI v1.0.0')}              ${cli.color.cyan('║')}`);
-  console.log(`${cli.color.cyan('║')}         ${cli.color.dim('CLI Proxy Interceptor')}         ${cli.color.cyan('║')}`);
+  console.log(`${cli.color.cyan('║')}      ${cli.color.bold.white('CLIPI v1.0.0')}                     ${cli.color.cyan('║')}`);
+  console.log(`${cli.color.cyan('║')}  ${cli.color.dim('CLI Proxy Interceptor')}                ${cli.color.cyan('║')}`);
   console.log(`${cli.color.cyan('╚═══════════════════════════════════════╝')}\n`);
 
   const proxy = new CLIPI(options);

@@ -4,11 +4,14 @@ A lightweight HTTP/HTTPS proxy interceptor for security testing and debugging, i
 
 ## Features
 
-- HTTP/HTTPS traffic interception
+- HTTP/HTTPS traffic interception with full decryption
 - Manual request forwarding/blocking
+- Request modification with your editor
 - Request history tracking
 - Verbose mode with full headers/bodies
 - Beautiful colored terminal output
+- Automatic CA certificate generation
+- On-the-fly certificate generation per domain
 
 ## Installation
 
@@ -17,6 +20,28 @@ git clone https://github.com/StringManolo/clipi
 cd clipi
 npm i
 chmod +x clipi.js
+```
+
+### Dependencies
+
+CLIPI requires `node-forge` for HTTPS certificate generation:
+
+```bash
+npm install node-forge simpleargumentsparser
+```
+
+Your `package.json` should include:
+
+```json
+{
+  "name": "clipi",
+  "version": "1.0.0",
+  "type": "module",
+  "dependencies": {
+    "node-forge": "^1.3.1",
+    "simpleargumentsparser": "^2.1.1"
+  }
+}
 ```
 
 ## Usage
@@ -88,7 +113,19 @@ When running with `-i` flag:
 
 - **[f]orward** - Send the request
 - **[d]rop** - Block the request
-- **[m]odify** - Modify request (coming soon)
+- **[m]odify** - Modify request with your editor (vim/nano/etc.)
+
+### Editor Configuration
+
+CLIPI uses your system's default editor. Set it with:
+
+```bash
+export EDITOR=vim
+export EDITOR=nano
+export EDITOR=code --wait
+```
+
+### Modify Example
 
 ```bash
 ╔═══ REQUEST INTERCEPTED ═══╗
@@ -100,12 +137,57 @@ Body:
 {"username":"admin","password":"test"}
 ╚═══════════════════════════╝
 
-[f]orward, [d]rop, [m]odify: f
+[f]orward, [d]rop, [m]odify: m
 ```
 
-## HTTPS Notes
+Selecting `m` opens your editor with the full HTTP request. Modify any part (method, path, headers, body) and save. CLIPI will send the modified request.
 
-CLIPI creates transparent HTTPS tunnels but does NOT decrypt traffic (by design). You'll see CONNECT requests but not encrypted payloads.
+## HTTPS Interception
+
+CLIPI automatically generates a Certificate Authority (CA) on first run and creates certificates on-the-fly for each HTTPS domain.
+
+### Certificate Location
+
+CA certificate is stored at: `~/.clipi/certs/ca-cert.pem`
+
+### Installing CA Certificate on Android
+
+1. **Start CLIPI** (this generates the CA):
+   ```bash
+   ./clipi.js
+   ```
+
+2. **Transfer the certificate to your device:**
+   ```bash
+   adb push ~/.clipi/certs/ca-cert.pem /sdcard/Download/
+   ```
+
+   Or transfer via USB/cloud storage.
+
+3. **Install on Android:**
+   - Settings → Security → Encryption & credentials
+   - Install a certificate → CA certificate
+   - Select `ca-cert.pem` from Downloads
+   - Name it "CLIPI CA" and confirm
+
+4. **Verify installation:**
+   - Settings → Security → Trusted credentials → User
+   - You should see "CLIPI CA"
+
+### Testing HTTPS Interception
+
+```bash
+./clipi.js -i -v
+```
+
+In Cromite, visit https://example.com and you'll see the decrypted request in CLIPI.
+
+### Security Notes
+
+- The CA private key is stored locally at `~/.clipi/certs/ca-key.pem`
+- Keep this file secure - anyone with it can intercept your HTTPS traffic
+- Remove the CA from your device when done testing
+- Only use on devices you own and control
 
 ## Security Warning
 

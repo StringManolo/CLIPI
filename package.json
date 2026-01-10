@@ -24,6 +24,7 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "dependencies": {
+    "node-forge": "^1.3.3",
     "simpleargumentsparser": "^2.0.0"
   }
 }
