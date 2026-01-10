@@ -736,6 +736,9 @@ class CLIPI {
           { title: '✎ Edit', description: 'Modify request', value: 'edit' },
           { title: '👁 View Response', description: 'View last response body', value: 'view', disabled: !tab.lastResponse },
           { title: '📊 Headers', description: 'View response headers', value: 'headers', disabled: !tab.lastResponse },
+          { title: '🔍 Search', description: 'Search in response body', value: 'search', disabled: !tab.lastResponse },
+          { title: '⚖️ Compare', description: 'Compare two responses', value: 'compare', disabled: tab.responseHistory.length < 2 },
+          { title: '📜 History', description: 'View all responses', value: 'history', disabled: tab.responseHistory.length === 0 },
           { title: '💾 Save', description: 'Save request to file', value: 'save' },
           { title: '📂 Load', description: 'Load request from file', value: 'load' },
           { title: '🗑 Delete Tab', description: 'Remove this repeater tab', value: 'delete' },
@@ -759,6 +762,15 @@ class CLIPI {
           break;
         case 'headers':
           await this.viewResponseHeaders(tab);
+          break;
+        case 'search':
+          await this.searchInResponse(tab);
+          break;
+        case 'compare':
+          await this.compareResponses(tab);
+          break;
+        case 'history':
+          await this.viewResponseHistory(tab);
           break;
         case 'save':
           await this.saveRepeaterRequest(tab);
@@ -903,6 +915,232 @@ class CLIPI {
       name: 'continue',
       message: ''
     });
+  }
+
+  async searchInResponse(tab) {
+    if (!tab.lastResponse) return;
+
+    const searchQuery = await prompts({
+      type: 'text',
+      name: 'value',
+      message: 'Search for:',
+      validate: value => value.length > 0 || 'Please enter a search term'
+    });
+
+    if (!searchQuery.value) return;
+
+    console.clear();
+    console.log(`${this.cli.color.magenta('═══ SEARCH RESULTS ═══')}\n`);
+    console.log(`${this.cli.color.cyan('Query:')} ${searchQuery.value}\n`);
+
+    const body = tab.lastResponse.body;
+    const lines = body.split('\n');
+    let matches = 0;
+
+    lines.forEach((line, index) => {
+      if (line.toLowerCase().includes(searchQuery.value.toLowerCase())) {
+        matches++;
+        const highlighted = line.replace(
+          new RegExp(searchQuery.value, 'gi'),
+          match => this.cli.color.yellow.bold(match)
+        );
+        console.log(`${this.cli.color.dim(`Line ${index + 1}:`)} ${highlighted}`);
+      }
+    });
+
+    if (matches === 0) {
+      console.log(`${this.cli.color.red('No matches found')}`);
+    } else {
+      console.log(`\n${this.cli.color.green(`Found ${matches} match${matches > 1 ? 'es' : ''}`)}`);
+    }
+
+    await this.pause();
+  }
+
+  async viewResponseHistory(tab) {
+    if (tab.responseHistory.length === 0) return;
+
+    console.clear();
+    console.log(`${this.cli.color.magenta('═══ RESPONSE HISTORY ═══')}\n`);
+
+    const choices = tab.responseHistory.map((resp, index) => {
+      const statusColor = resp.statusCode < 300 ? this.cli.color.green :
+                         resp.statusCode < 400 ? this.cli.color.yellow :
+                         this.cli.color.red;
+      return {
+        title: `#${index + 1} - ${statusColor(resp.statusCode)} ${resp.statusMessage} (${resp.responseTime}ms)`,
+        description: new Date(resp.timestamp).toLocaleTimeString(),
+        value: index
+      };
+    });
+
+    choices.push({ title: '← Back', value: 'back' });
+
+    const selection = await prompts({
+      type: 'select',
+      name: 'value',
+      message: 'Select response to view:',
+      choices: choices
+    });
+
+    if (selection.value === 'back' || selection.value === undefined) return;
+
+    const selectedResp = tab.responseHistory[selection.value];
+    
+    console.clear();
+    console.log(`${this.cli.color.magenta(`═══ RESPONSE #${selection.value + 1} ═══`)}\n`);
+    console.log(`${this.cli.color.cyan('Status:')} ${selectedResp.statusCode} ${selectedResp.statusMessage}`);
+    console.log(`${this.cli.color.cyan('Time:')} ${selectedResp.responseTime}ms`);
+    console.log(`${this.cli.color.cyan('Timestamp:')} ${selectedResp.timestamp}\n`);
+    console.log(`${this.cli.color.cyan('Headers:')}`);
+    Object.entries(selectedResp.headers).forEach(([key, value]) => {
+      console.log(`  ${this.cli.color.dim(key)}: ${value}`);
+    });
+    console.log(`\n${this.cli.color.cyan('Body:')}`);
+    const display = selectedResp.body.length > 3000 ? 
+      selectedResp.body.substring(0, 3000) + `\n\n${this.cli.color.yellow(`... (${selectedResp.body.length - 3000} more chars)`)}` : 
+      selectedResp.body;
+    console.log(display);
+
+    await this.pause();
+  }
+
+  async compareResponses(tab) {
+    if (tab.responseHistory.length < 2) return;
+
+    console.clear();
+    console.log(`${this.cli.color.magenta('═══ COMPARE RESPONSES ═══')}\n`);
+
+    const choices = tab.responseHistory.map((resp, index) => {
+      const statusColor = resp.statusCode < 300 ? this.cli.color.green :
+                         resp.statusCode < 400 ? this.cli.color.yellow :
+                         this.cli.color.red;
+      return {
+        title: `#${index + 1} - ${statusColor(resp.statusCode)} ${resp.statusMessage} (${resp.responseTime}ms)`,
+        description: new Date(resp.timestamp).toLocaleTimeString(),
+        value: index
+      };
+    });
+
+    const first = await prompts({
+      type: 'select',
+      name: 'value',
+      message: 'Select FIRST response:',
+      choices: choices
+    });
+
+    if (first.value === undefined) return;
+
+    const second = await prompts({
+      type: 'select',
+      name: 'value',
+      message: 'Select SECOND response:',
+      choices: choices.filter((_, idx) => idx !== first.value)
+    });
+
+    if (second.value === undefined) return;
+
+    const resp1 = tab.responseHistory[first.value];
+    const resp2 = tab.responseHistory[second.value];
+
+    console.clear();
+    console.log(`${this.cli.color.magenta('═══ RESPONSE COMPARISON ═══')}\n`);
+    
+    console.log(`${this.cli.color.bold('Response #' + (first.value + 1))} vs ${this.cli.color.bold('Response #' + (second.value + 1))}\n`);
+
+    // Compare status codes
+    console.log(`${this.cli.color.cyan('Status Code:')}`);
+    if (resp1.statusCode !== resp2.statusCode) {
+      console.log(`  ${this.cli.color.red('✗')} ${resp1.statusCode} → ${resp2.statusCode} ${this.cli.color.yellow('(DIFFERENT)')}`);
+    } else {
+      console.log(`  ${this.cli.color.green('✓')} ${resp1.statusCode} (same)`);
+    }
+
+    // Compare response times
+    console.log(`\n${this.cli.color.cyan('Response Time:')}`);
+    const timeDiff = Math.abs(resp1.responseTime - resp2.responseTime);
+    if (timeDiff > 50) {
+      console.log(`  ${this.cli.color.yellow('⚠')} ${resp1.responseTime}ms vs ${resp2.responseTime}ms ${this.cli.color.yellow(`(diff: ${timeDiff}ms)`)}`);
+    } else {
+      console.log(`  ${this.cli.color.green('✓')} ${resp1.responseTime}ms vs ${resp2.responseTime}ms (similar)`);
+    }
+
+    // Compare content length
+    console.log(`\n${this.cli.color.cyan('Content Length:')}`);
+    if (resp1.body.length !== resp2.body.length) {
+      console.log(`  ${this.cli.color.red('✗')} ${resp1.body.length} → ${resp2.body.length} chars ${this.cli.color.yellow(`(diff: ${Math.abs(resp1.body.length - resp2.body.length)})`)}`);
+    } else {
+      console.log(`  ${this.cli.color.green('✓')} ${resp1.body.length} chars (same)`);
+    }
+
+    // Compare headers
+    console.log(`\n${this.cli.color.cyan('Headers Diff:')}`);
+    const headers1 = Object.keys(resp1.headers);
+    const headers2 = Object.keys(resp2.headers);
+    const allHeaders = new Set([...headers1, ...headers2]);
+    
+    let headerDiffs = 0;
+    allHeaders.forEach(header => {
+      const val1 = resp1.headers[header];
+      const val2 = resp2.headers[header];
+      
+      if (val1 !== val2) {
+        headerDiffs++;
+        if (!val1) {
+          console.log(`  ${this.cli.color.green('+')} ${header}: ${val2}`);
+        } else if (!val2) {
+          console.log(`  ${this.cli.color.red('-')} ${header}: ${val1}`);
+        } else {
+          console.log(`  ${this.cli.color.yellow('~')} ${header}:`);
+          console.log(`    ${this.cli.color.red('-')} ${val1}`);
+          console.log(`    ${this.cli.color.green('+')} ${val2}`);
+        }
+      }
+    });
+
+    if (headerDiffs === 0) {
+      console.log(`  ${this.cli.color.green('✓')} Headers are identical`);
+    } else {
+      console.log(`  ${this.cli.color.yellow(`Found ${headerDiffs} difference(s)`)}`);
+    }
+
+    // Compare body
+    console.log(`\n${this.cli.color.cyan('Body Diff:')}`);
+    
+    if (resp1.body === resp2.body) {
+      console.log(`  ${this.cli.color.green('✓')} Bodies are identical`);
+    } else {
+      const lines1 = resp1.body.split('\n');
+      const lines2 = resp2.body.split('\n');
+      const maxLines = Math.max(lines1.length, lines2.length);
+      
+      let diffCount = 0;
+      let shownDiffs = 0;
+      const maxDiffsToShow = 20;
+
+      for (let i = 0; i < maxLines && shownDiffs < maxDiffsToShow; i++) {
+        const line1 = lines1[i] || '';
+        const line2 = lines2[i] || '';
+        
+        if (line1 !== line2) {
+          diffCount++;
+          if (shownDiffs < maxDiffsToShow) {
+            console.log(`  ${this.cli.color.dim(`Line ${i + 1}:`)}`);
+            if (line1) console.log(`    ${this.cli.color.red('-')} ${line1.substring(0, 100)}`);
+            if (line2) console.log(`    ${this.cli.color.green('+')} ${line2.substring(0, 100)}`);
+            shownDiffs++;
+          }
+        }
+      }
+
+      if (diffCount > maxDiffsToShow) {
+        console.log(`\n  ${this.cli.color.yellow(`... and ${diffCount - maxDiffsToShow} more differences`)}`);
+      }
+
+      console.log(`\n  ${this.cli.color.yellow(`Total: ${diffCount} line(s) differ`)}`);
+    }
+
+    await this.pause();
   }
 
   showHistory() {
