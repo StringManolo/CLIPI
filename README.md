@@ -1,5 +1,7 @@
 # CLIPI - CLI Proxy Interceptor
 
+![CLIPI](repo_assets/CLIPI_image.png)
+
 A lightweight HTTP/HTTPS proxy interceptor for security testing and debugging, inspired by Burp Suite but designed for the command line.
 
 ## Features
