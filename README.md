@@ -22,14 +22,6 @@ npm i
 chmod +x clipi.js
 ```
 
-### Dependencies
-
-CLIPI requires `node-forge` for HTTPS certificate generation:
-
-```bash
-npm install node-forge simpleargumentsparser
-```
-
 ## Usage
 
 ```bash
