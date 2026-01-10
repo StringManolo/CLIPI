@@ -9,11 +9,12 @@ import { writeFileSync, readFileSync, unlinkSync, existsSync, mkdirSync } from '
 import { tmpdir, homedir } from 'os';
 import { spawnSync } from 'child_process';
 import { join } from 'path';
+import { gunzipSync, inflateSync, brotliDecompressSync } from 'zlib';
 import forge from 'node-forge';
 import parseCLI from 'simpleargumentsparser';
 
 class RepeaterTab {
-  constructor(id, request) {
+  constructor(id, request, debug = false) {
     this.id = id;
     this.method = request.method;
     this.hostname = request.hostname;
@@ -24,6 +25,7 @@ class RepeaterTab {
     this.isHttps = request.isHttps;
     this.lastResponse = null;
     this.responseHistory = [];
+    this.debug = debug;
   }
 
   serializeRequest() {
@@ -79,22 +81,67 @@ class RepeaterTab {
         headers: { ...this.headers, host: this.hostname }
       };
 
+      if (this.debug) {
+        console.log('\n[DEBUG] Sending request:');
+        console.log('  URL:', `${this.isHttps ? 'https' : 'http'}://${this.hostname}:${this.port}${this.path}`);
+        console.log('  Method:', this.method);
+        console.log('  Headers:', JSON.stringify(this.headers, null, 2));
+        if (this.body) {
+          console.log('  Body length:', this.body.length);
+        }
+      }
+
       const makeRequest = this.isHttps ? https.request : http.request;
       const startTime = Date.now();
 
       const req = makeRequest(options, (res) => {
-        let responseBody = '';
+        const chunks = [];
         res.on('data', chunk => {
-          responseBody += chunk.toString();
+          chunks.push(chunk);
         });
 
         res.on('end', () => {
           const responseTime = Date.now() - startTime;
+          let responseBody = Buffer.concat(chunks);
+          
+          if (this.debug) {
+            console.log('\n[DEBUG] Response received:');
+            console.log('  Status:', res.statusCode, res.statusMessage);
+            console.log('  Raw buffer size:', responseBody.length, 'bytes');
+            console.log('  Content-Encoding:', res.headers['content-encoding'] || 'none');
+          }
+
+          const encoding = res.headers['content-encoding'];
+          try {
+            if (encoding === 'gzip') {
+              if (this.debug) console.log('  [DEBUG] Decompressing gzip...');
+              responseBody = gunzipSync(responseBody);
+              if (this.debug) console.log('  [DEBUG] Decompressed size:', responseBody.length, 'bytes');
+            } else if (encoding === 'deflate') {
+              if (this.debug) console.log('  [DEBUG] Decompressing deflate...');
+              responseBody = inflateSync(responseBody);
+              if (this.debug) console.log('  [DEBUG] Decompressed size:', responseBody.length, 'bytes');
+            } else if (encoding === 'br') {
+              if (this.debug) console.log('  [DEBUG] Decompressing brotli...');
+              responseBody = brotliDecompressSync(responseBody);
+              if (this.debug) console.log('  [DEBUG] Decompressed size:', responseBody.length, 'bytes');
+            }
+          } catch (err) {
+            if (this.debug) console.log('  [DEBUG] Decompression failed:', err.message);
+          }
+
+          const bodyString = responseBody.toString('utf-8');
+          
+          if (this.debug) {
+            console.log('  [DEBUG] Body string length:', bodyString.length, 'chars');
+            console.log('  [DEBUG] Body preview:', bodyString.substring(0, 200));
+          }
+
           const response = {
             statusCode: res.statusCode,
             statusMessage: res.statusMessage,
             headers: res.headers,
-            body: responseBody,
+            body: bodyString,
             responseTime,
             timestamp: new Date().toISOString()
           };
@@ -106,6 +153,9 @@ class RepeaterTab {
       });
 
       req.on('error', (err) => {
+        if (this.debug) {
+          console.log('\n[DEBUG] Request error:', err.message);
+        }
         reject(err);
       });
 
@@ -123,14 +173,17 @@ class CLIPI {
     this.port = options.port || 8080;
     this.interceptMode = options.intercept || false;
     this.verbose = options.verbose || false;
+    this.debug = options.debug || false;
     this.requestCount = 0;
     this.history = [];
     this.cli = options.cli;
     this.certCache = new Map();
     this.certDir = join(homedir(), '.clipi', 'certs');
+    this.repeaterFile = join(homedir(), '.clipi', 'repeater-tabs.json');
     this.ca = this.loadOrCreateCA();
-    this.repeaterTabs = [];
-    this.repeaterCount = 0;
+    this.repeaterTabs = this.loadRepeaterTabs();
+    this.repeaterCount = this.repeaterTabs.length > 0 ? 
+      Math.max(...this.repeaterTabs.map(t => t.id)) : 0;
   }
 
   loadOrCreateCA() {
@@ -186,6 +239,45 @@ class CLIPI {
     return { key: pemKey, cert: pemCert };
   }
 
+  loadRepeaterTabs() {
+    if (!existsSync(this.repeaterFile)) {
+      return [];
+    }
+
+    try {
+      const data = JSON.parse(readFileSync(this.repeaterFile, 'utf-8'));
+      return data.map(tabData => {
+        const tab = new RepeaterTab(tabData.id, tabData, this.debug);
+        tab.responseHistory = tabData.responseHistory || [];
+        tab.lastResponse = tabData.lastResponse || null;
+        return tab;
+      });
+    } catch (err) {
+      console.error(`${this.cli?.color?.red('[!]') || '[!]'} Error loading repeater tabs: ${err.message}`);
+      return [];
+    }
+  }
+
+  saveRepeaterTabs() {
+    try {
+      const data = this.repeaterTabs.map(tab => ({
+        id: tab.id,
+        method: tab.method,
+        hostname: tab.hostname,
+        port: tab.port,
+        path: tab.path,
+        headers: tab.headers,
+        body: tab.body,
+        isHttps: tab.isHttps,
+        lastResponse: tab.lastResponse,
+        responseHistory: tab.responseHistory
+      }));
+      writeFileSync(this.repeaterFile, JSON.stringify(data, null, 2));
+    } catch (err) {
+      console.error(`${this.cli?.color?.red('[!]') || '[!]'} Error saving repeater tabs: ${err.message}`);
+    }
+  }
+
   generateCertificate(hostname) {
     if (this.certCache.has(hostname)) {
       return this.certCache.get(hostname);
@@ -234,6 +326,9 @@ class CLIPI {
     server.listen(this.port, this.host, () => {
       console.log(`${this.cli.color.green('[+]')} CLIPI started on ${this.cli.color.bold(`${this.host}:${this.port}`)}`);
       console.log(`${this.cli.color.cyan('[*]')} Intercept mode: ${this.interceptMode ? this.cli.color.yellow('ACTIVE') : this.cli.color.dim('PASSIVE')}`);
+      if (this.debug) {
+        console.log(`${this.cli.color.magenta('[*]')} Debug mode: ${this.cli.color.yellow('ENABLED')}`);
+      }
       console.log(`${this.cli.color.yellow('[*]')} Press Ctrl+C to stop\n`);
     });
 
@@ -286,7 +381,6 @@ class CLIPI {
         return;
       }
 
-      // Repeater: save to repeater AND forward the request
       if (result.action === 'repeater') {
         // Request continues to be forwarded below
       }
@@ -317,9 +411,9 @@ class CLIPI {
     const makeRequest = isHttps ? https.request : http.request;
 
     const proxyReq = makeRequest(options, (proxyRes) => {
-      let responseBody = '';
+      const chunks = [];
       proxyRes.on('data', chunk => {
-        responseBody += chunk.toString();
+        chunks.push(chunk);
       });
 
       proxyRes.on('end', () => {
@@ -338,9 +432,38 @@ class CLIPI {
           https: isHttps
         });
 
-        if (this.verbose) {
+        if (this.verbose || this.debug) {
+          let responseBody = Buffer.concat(chunks);
+          
+          if (this.debug) {
+            console.log(`  ${this.cli.color.cyan('[DEBUG] Response:')}`, responseBody.length, 'bytes');
+            console.log(`  ${this.cli.color.cyan('[DEBUG] Content-Encoding:')}`, proxyRes.headers['content-encoding'] || 'none');
+          }
+
+          const encoding = proxyRes.headers['content-encoding'];
+          try {
+            if (encoding === 'gzip') {
+              if (this.debug) console.log(`  ${this.cli.color.cyan('[DEBUG] Decompressing gzip...')}`);
+              responseBody = gunzipSync(responseBody);
+            } else if (encoding === 'deflate') {
+              if (this.debug) console.log(`  ${this.cli.color.cyan('[DEBUG] Decompressing deflate...')}`);
+              responseBody = inflateSync(responseBody);
+            } else if (encoding === 'br') {
+              if (this.debug) console.log(`  ${this.cli.color.cyan('[DEBUG] Decompressing brotli...')}`);
+              responseBody = brotliDecompressSync(responseBody);
+            }
+          } catch (err) {
+            if (this.debug) console.log(`  ${this.cli.color.cyan('[DEBUG] Decompression failed:')}`, err.message);
+          }
+
+          const bodyString = responseBody.toString('utf-8');
+          
+          if (this.debug) {
+            console.log(`  ${this.cli.color.cyan('[DEBUG] Decompressed size:')}`, bodyString.length, 'chars');
+          }
+
           console.log(`  ${this.cli.color.cyan('Response Headers:')}`, proxyRes.headers);
-          console.log(`  ${this.cli.color.cyan('Response Body:')}`, responseBody.substring(0, 200));
+          console.log(`  ${this.cli.color.cyan('Response Body:')}`, bodyString.substring(0, 200));
         }
       });
 
@@ -538,15 +661,17 @@ class CLIPI {
 
   createRepeaterTab(request) {
     this.repeaterCount++;
-    const tab = new RepeaterTab(this.repeaterCount, request);
+    const tab = new RepeaterTab(this.repeaterCount, request, this.debug);
     this.repeaterTabs.push(tab);
+    this.saveRepeaterTabs();
     return tab;
   }
 
   async openRepeater() {
     if (this.repeaterTabs.length === 0) {
-      console.log(`${this.cli.color.yellow('[!]')} No repeater tabs available`);
-      console.log(`${this.cli.color.dim('Intercept a request and send it to Repeater first')}\n`);
+      console.log(`\n${this.cli.color.yellow('[!]')} No repeater tabs available`);
+      console.log(`${this.cli.color.dim('Start the proxy with -i and intercept a request, then send it to Repeater')}`);
+      console.log(`${this.cli.color.dim('Or the tabs were cleared. Tabs persist in ~/.clipi/repeater-tabs.json')}\n`);
       return;
     }
 
@@ -650,6 +775,7 @@ class CLIPI {
           });
           if (confirm.value) {
             this.repeaterTabs = this.repeaterTabs.filter(t => t.id !== tab.id);
+            this.saveRepeaterTabs();
             console.log(`${this.cli.color.green('[✓]')} Tab deleted\n`);
             return;
           }
@@ -662,6 +788,7 @@ class CLIPI {
     console.log(`\n${this.cli.color.cyan('[→]')} Sending request...`);
     try {
       const response = await tab.send();
+      this.saveRepeaterTabs();
       const statusColor = response.statusCode < 300 ? this.cli.color.green :
                          response.statusCode < 400 ? this.cli.color.yellow :
                          this.cli.color.red;
@@ -680,6 +807,7 @@ class CLIPI {
     if (modified) {
       try {
         tab.updateFromRaw(modified);
+        this.saveRepeaterTabs();
         console.log(`${this.cli.color.green('[✓]')} Request updated`);
       } catch (err) {
         console.log(`${this.cli.color.red('[✗]')} Invalid format: ${err.message}`);
@@ -693,7 +821,15 @@ class CLIPI {
     
     console.clear();
     console.log(`${this.cli.color.magenta('═══ RESPONSE BODY ═══')}\n`);
-    console.log(tab.lastResponse.body);
+    
+    const body = tab.lastResponse.body;
+    if (!body || body.trim() === '') {
+      console.log(`${this.cli.color.dim('(empty response body)')}`);
+    } else {
+      const display = body.length > 5000 ? body.substring(0, 5000) + '\n\n' + this.cli.color.yellow(`... (${body.length - 5000} more chars)`) : body;
+      console.log(display);
+    }
+    
     console.log(`\n${this.cli.color.dim('Press Enter to continue...')}`);
     await prompts({
       type: 'text',
@@ -751,6 +887,7 @@ class CLIPI {
       try {
         const raw = readFileSync(filename.value, 'utf-8');
         tab.updateFromRaw(raw);
+        this.saveRepeaterTabs();
         console.log(`${this.cli.color.green('[✓]')} Request loaded from ${filename.value}`);
       } catch (err) {
         console.log(`${this.cli.color.red('[✗]')} Error: ${err.message}`);
@@ -796,7 +933,7 @@ ${cli.color.dim('═════════════════════
 
 ${cli.color.bold('USAGE')}
   clipi [options]
-  clipi repeater              ${cli.color.dim('# Open Repeater mode')}
+  clipi repeater
 
 ${cli.color.bold('OPTIONS')}
   ${cli.color.yellow('-h, --help')}        Show this help message
@@ -804,13 +941,14 @@ ${cli.color.bold('OPTIONS')}
   ${cli.color.yellow('-p, --port')}        Proxy port (default: 8080)
   ${cli.color.yellow('-i, --intercept')}   Enable manual intercept mode
   ${cli.color.yellow('-v, --verbose')}     Show detailed headers and bodies
+  ${cli.color.yellow('-d, --debug')}       Show debug information
   ${cli.color.yellow('--version')}         Show version number
 
 ${cli.color.bold('EXAMPLES')}
   ${cli.color.dim('$')} clipi
   ${cli.color.dim('$')} clipi -i
   ${cli.color.dim('$')} clipi -p 9090 -v
-  ${cli.color.dim('$')} clipi -H 0.0.0.0 -i -v
+  ${cli.color.dim('$')} clipi -ivd
   ${cli.color.dim('$')} clipi repeater
 
 ${cli.color.bold('PROXY CONFIGURATION')}
@@ -846,6 +984,7 @@ async function main() {
     port: parseInt(cli.c.port || cli.c.p) || 8080,
     intercept: !!(cli.s.i || cli.c.intercept),
     verbose: !!(cli.s.v || cli.c.verbose),
+    debug: !!(cli.s.d || cli.c.debug),
     cli: cli
   };
 
@@ -856,7 +995,6 @@ async function main() {
 
   const proxy = new CLIPI(options);
 
-  // Check if repeater mode
   if (cli.o && cli.o.some(arg => arg[0] === 'repeater')) {
     await proxy.openRepeater();
     process.exit(0);
@@ -864,9 +1002,8 @@ async function main() {
 
   proxy.start();
 
-  // Allow opening repeater with Ctrl+R (but this requires raw mode)
   process.stdin.on('data', async (key) => {
-    if (key.toString() === '\x12') { // Ctrl+R
+    if (key.toString() === '\x12') {
       await proxy.openRepeater();
     }
   });
