@@ -1,0 +1,105 @@
+import { describe, it, expect, beforeAll } from "vitest";
+import { spawn, execSync } from "child_process";
+
+const sleep = async s => await new Promise(resolve => setTimeout(resolve, s * 1000));
+
+const stripAnsi = (str) => str.replace(/\u001b\[[0-9;]*m/g, '');
+
+const runCLIPI = (args = "", keepAlive = false) => {
+  return new Promise((resolve, reject) => {
+    const argsArray = args.trim() ? args.trim().split(/\s+/) : [];
+    const childProcess = spawn("node", ["clipi.js", ...argsArray], {
+      env: {
+        ...process.env,
+        FORCE_COLOR: "0",
+        TERM: "xterm-256color"
+      },
+      stdio: ['ignore', 'pipe', 'pipe']
+    });
+
+    let output = "";
+    let errorOutput = "";
+    
+    childProcess.stdout.on("data", (data) => {
+      const text = data.toString();
+      output += text;
+      
+      if (output.includes("started on") || output.includes("CLIPI started")) {
+        setTimeout(() => {
+          if (keepAlive) {
+            // Devuelve el proceso y una función para obtener el output
+            resolve({
+              getOutput: () => stripAnsi(output + errorOutput),
+              process: childProcess
+            });
+          } else {
+            childProcess.kill('SIGTERM');
+          }
+        }, 100);
+      }
+    });
+
+    childProcess.stderr.on("data", (data) => {
+      errorOutput += data.toString();
+    });
+
+    if (!keepAlive) {
+      childProcess.on('exit', () => {
+        resolve(stripAnsi(output + errorOutput));
+      });
+    }
+
+    setTimeout(() => {
+      if (!keepAlive) {
+        childProcess.kill('SIGKILL');
+        reject(new Error("Timeout - no output detected"));
+      }
+    }, 3000);
+
+    childProcess.on("error", reject);
+  });
+};
+
+const isCurlInstalled = () => {
+  try {
+    execSync("curl --version", { stdio: 'ignore' });
+    return true;
+  } catch(err) {
+    return false;
+  }
+};
+
+
+describe("CLIPI E2E", async () => {
+  // Make sure curl is installed cuz this tests are using it to test the proxy
+  beforeAll(() => {
+    if (!isCurlInstalled()) {
+      throw new Error("\n\n❌ curl is required to run integration tests. Please install curl first.\n");
+    }    
+  });
+
+  const clipiOutputNoArgs = await runCLIPI();
+  it("Should bind auto to 127.0.0.1:8080", () => {
+    expect(clipiOutputNoArgs).toContain("CLIPI started on 127.0.0.1:8080");
+  });
+
+  it("Should start in passive intercept mode", () => {
+    expect(clipiOutputNoArgs).toContain("Intercept mode: PASSIVE");
+  });
+
+
+  const { getOutput, process: clipiProcess } = await runCLIPI("", true);
+  await sleep(0.1);
+  execSync("curl --proxy http://127.0.0.1:8080 http://example.com --silent");
+  await sleep(0.1);
+  const httpExampleRequestOutput = getOutput();
+  clipiProcess.kill();
+  it("Should get example.com HTTP request in pasive mode", () => {
+    expect(httpExampleRequestOutput).toContain("[1] GET example.com/");
+  }); 
+  it("Should get 200 HTTP status code from example.com request in pasive mode", () => {
+    expect(httpExampleRequestOutput).toContain("200 OK");
+  });
+
+
+});
