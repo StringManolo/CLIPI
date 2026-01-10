@@ -4,9 +4,9 @@ A lightweight HTTP/HTTPS proxy interceptor for security testing and debugging, i
 
 ## Features
 
-- HTTP/HTTPS traffic interception with full decryption
+- HTTP/HTTPS traffic interception with automated full en/decryption (MITM)
 - Manual request forwarding/blocking
-- Request modification with your editor
+- Request modification with your terminal text editor
 - Request history tracking
 - Verbose mode with full headers/bodies
 - Beautiful colored terminal output
@@ -30,30 +30,14 @@ CLIPI requires `node-forge` for HTTPS certificate generation:
 npm install node-forge simpleargumentsparser
 ```
 
-Your `package.json` should include:
-
-```json
-{
-  "name": "clipi",
-  "version": "1.0.0",
-  "type": "module",
-  "dependencies": {
-    "node-forge": "^1.3.1",
-    "simpleargumentsparser": "^2.1.1"
-  }
-}
-```
-
 ## Usage
 
 ```bash
-./clipi.js
+./clipi.js -iv
 
-./clipi.js -i
+./clipi.js -p 9090 -iv
 
-./clipi.js -p 9090 -v
-
-./clipi.js -H 0.0.0.0 -i -v
+./clipi.js -H 0.0.0.0 -iv
 ```
 
 ### Options
@@ -80,7 +64,7 @@ Download the latest `.apk` file for your architecture (arm64-v8a recommended) an
 
 1. Start CLIPI:
    ```bash
-   ./clipi.js -i
+   ./clipi.js -iv
    ```
 
 2. Open Cromite:
@@ -89,7 +73,7 @@ Download the latest `.apk` file for your architecture (arm64-v8a recommended) an
    - Enter: `PROXY 127.0.0.1:8080`
    - Scroll down and press Apply
 
-3. Navigate to any site and watch the intercepted requests
+3. Navigate to any HTTP site and watch the intercepted requests
 
 ## Test Sites
 
@@ -98,14 +82,6 @@ Download the latest `.apk` file for your architecture (arm64-v8a recommended) an
 - **XSS Game** - https://xss-game.appspot.com/
 - **Juice Shop** - https://juice-shop.herokuapp.com/
 - **PortSwigger Academy** - https://portswigger.net/web-security
-
-## Testing
-
-```bash
-./clipi.js -i -v
-```
-
-In Cromite, visit http://neverssl.com and watch the intercepted request.
 
 ## Intercept Mode
 
@@ -154,15 +130,13 @@ CA certificate is stored at: `~/.clipi/certs/ca-cert.pem`
 
 1. **Start CLIPI** (this generates the CA):
    ```bash
-   ./clipi.js
+   ./clipi.js -vi
    ```
 
 2. **Transfer the certificate to your device:**
    ```bash
-   adb push ~/.clipi/certs/ca-cert.pem /sdcard/Download/
+    cp ~/.clipi/certs/ca-cert.pem /storage/downloads/
    ```
-
-   Or transfer via USB/cloud storage.
 
 3. **Install on Android:**
    - Settings → Security → Encryption & credentials
@@ -170,14 +144,10 @@ CA certificate is stored at: `~/.clipi/certs/ca-cert.pem`
    - Select `ca-cert.pem` from Downloads
    - Name it "CLIPI CA" and confirm
 
-4. **Verify installation:**
-   - Settings → Security → Trusted credentials → User
-   - You should see "CLIPI CA"
-
 ### Testing HTTPS Interception
 
 ```bash
-./clipi.js -i -v
+./clipi.js -iv
 ```
 
 In Cromite, visit https://example.com and you'll see the decrypted request in CLIPI.
@@ -186,7 +156,6 @@ In Cromite, visit https://example.com and you'll see the decrypted request in CL
 
 - The CA private key is stored locally at `~/.clipi/certs/ca-key.pem`
 - Keep this file secure - anyone with it can intercept your HTTPS traffic
-- Remove the CA from your device when done testing
 - Only use on devices you own and control
 
 ## Security Warning
