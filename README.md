@@ -206,6 +206,21 @@ From Repeater, select "📋 Copy as cURL" to:
 1. View the exact cURL command
 2. Save it as an executable script (with 775 permissions)
 
+### Tests
+I made the tests in a very "unique" way. This is because the test are expected to also be ran in low specs Android devices. 
+
+##### Test Drawbacks
+- Non isolated.
+- Required to ran in a specific order
+- Can be just a bit more difficult to debug than usual.
+- You have to wait for all tests to ran to see how many passed / failed.
+
+##### Test Advantages
+- Test are shorter, both to write and to read, reusing code for multiple tests.
+- Tests run much faster than usual because they are reusing a single process for multiple test instead of starting an independent node process for each test case.
+
+
+
 ## Security Warning
 **For educational and authorized testing only. Do not use on systems without permission.**
 
