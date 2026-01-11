@@ -27,7 +27,6 @@ const runCLIPI = (args = "", keepAlive = false) => {
       if (output.includes("started on") || output.includes("CLIPI started")) {
         setTimeout(() => {
           if (keepAlive) {
-            // Devuelve el proceso y una función para obtener el output
             resolve({
               getOutput: () => stripAnsi(output + errorOutput),
               process: childProcess
@@ -70,6 +69,11 @@ const isCurlInstalled = () => {
 };
 
 
+
+
+
+
+
 describe("CLIPI E2E", async () => {
   // Make sure curl is installed cuz this tests are using it to test the proxy
   beforeAll(() => {
@@ -88,9 +92,9 @@ describe("CLIPI E2E", async () => {
   });
 
 
-  const { getOutput, process: clipiProcess } = await runCLIPI("", true);
+  let{ getOutput, process: clipiProcess } = await runCLIPI("", true);
   await sleep(0.1);
-  execSync("curl --proxy http://127.0.0.1:8080 http://example.com --silent");
+  let exampleResponseFromCurl = execSync("curl --proxy http://127.0.0.1:8080 http://example.com --silent -v 2>&1", { encoding: "utf8" });
   await sleep(0.1);
   const httpExampleRequestOutput = getOutput();
   clipiProcess.kill();
@@ -100,6 +104,50 @@ describe("CLIPI E2E", async () => {
   it("Should get 200 HTTP status code from example.com request in pasive mode", () => {
     expect(httpExampleRequestOutput).toContain("200 OK");
   });
+  it("Should get example.com server headers from CURL output", () => {
+    expect(exampleResponseFromCurl).toContain("Host: example.com");
+  });
+  it("Should get example.com HTML body from CURL output", () => {
+    expect(exampleResponseFromCurl).toContain("<title>Example Domain</title>");
+  });
+
+  // check cert creation
+  ({ getOutput, process: clipiProcess } = await runCLIPI("", true));
+  await sleep(0.1);
+  exampleResponseFromCurl = execSync("curl --proxy http://127.0.0.1:8080 https://example.com --cacert ~/.clipi/certs/ca-cert.pem --silent -v 2>&1", { encoding: "utf8" });
+  await sleep(0.1);
+  const httpsExampleRequestOutput = getOutput();
+  clipiProcess.kill();
+  it("Should get example.com HTTPS CONNECT request in pasive mode", () => {
+    expect(httpsExampleRequestOutput).toContain("[HTTPS] CONNECT example.com:443");
+  });
+  it("Should get example.com HTTPS request in pasive mode", () => {
+    expect(httpsExampleRequestOutput).toContain("[1] GET example.com/ [HTTPS]");
+  });
+  it("Should get 200 HTTP status code from example.com request in Secure pasive mode", () => {
+    expect(httpsExampleRequestOutput).toContain("200 OK");
+  });
+  it("Should get https://example.com HTML body from CURL output", () => {
+    expect(exampleResponseFromCurl).toContain("<title>Example Domain</title>");
+  });
 
 
+
+  ({ getOutput, process: clipiProcess } = await runCLIPI("--host 127.0.0.2", true));
+  await sleep(0.1);
+  exampleResponseFromCurl = execSync("curl --proxy http://127.0.0.2:8080 http://example.com --silent -v 2>&1", { encoding: "utf8" });
+  await sleep(0.1);
+  const httpExampleRequestHostOutput = getOutput();
+  it("Should bind to 127.0.0.2:8080 with --host 127.0.0.2 flag", () => {
+    expect(httpExampleRequestHostOutput).toContain("CLIPI started on 127.0.0.2:8080");
+  });
+  it("Should get example.com HTML body from CURL output with --host 127.0.0.2 flag", () => {
+    expect(exampleResponseFromCurl).toContain("<title>Example Domain</title>");
+  }); 
+
+  
+  /* 
+   *
+   * ./clipi.js --host 127.0.0.2
+   */
 });
