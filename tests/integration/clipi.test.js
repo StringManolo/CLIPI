@@ -147,6 +147,19 @@ describe("CLIPI E2E", async () => {
     expect(exampleResponseFromCurl).toContain("<title>Example Domain</title>");
   }); 
 
+  // Test --port flag works
+  ({ getOutput, process: clipiProcess } = await runCLIPI("--port 8081", true));
+  await sleep(0.1);
+  exampleResponseFromCurl = execSync("curl --proxy http://127.0.0.1:8081 http://example.com --silent -v 2>&1", { encoding: "utf8" });
+  await sleep(0.1);
+  const httpExampleRequestPortOutput = getOutput();
+  it("Should bind to 127.0.0.1:8081 with --port 8081 flag", () => {
+    expect(httpExampleRequestPortOutput).toContain("CLIPI started on 127.0.0.1:8081");
+  });
+  it("Should get example.com HTML body from CURL output with --port 8081 flag", () => {
+    expect(exampleResponseFromCurl).toContain("<title>Example Domain</title>");
+  }); 
+
 
   
 });
