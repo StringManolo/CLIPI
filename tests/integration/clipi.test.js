@@ -1,6 +1,28 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { spawn, execSync } from "child_process";
 import { access, constants, readFile, rename, unlink } from 'fs/promises';
+import pty from 'node-pty';
+
+/*
+const killAndWait = async (process) => {
+  if (!process || process.killed) return;
+  
+  process.kill('SIGTERM');
+  
+  await new Promise((resolve) => {
+    const timeout = setTimeout(resolve, 200);
+    process.once('exit', () => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+  
+  if (!process.killed) {
+    process.kill('SIGKILL');
+  }
+};
+*/
+
 
 const checkFile = async path => {
   try {
@@ -47,44 +69,84 @@ const sleep = async s => await new Promise(resolve => setTimeout(resolve, s * 10
 
 const stripAnsi = (str) => str.replace(/\u001b\[[0-9;]*m/g, '');
 
-const runCLIPI = (args = "", keepAlive = false) => {
+const runCLIPI = (args = "", keepAlive = false, interactive = false) => {
   return new Promise((resolve, reject) => {
     const argsArray = args.trim() ? args.trim().split(/\s+/) : [];
-    const childProcess = spawn("node", ["clipi.js", ...argsArray], {
-      env: {
-        ...process.env,
-        FORCE_COLOR: "0",
-        TERM: "xterm-256color"
-      },
-      stdio: ['ignore', 'pipe', 'pipe']
-    });
+    
+    let childProcess;
+    
+    if (interactive) {
+      // Usar pty para emular un terminal real
+      childProcess = pty.spawn("node", ["clipi.js", ...argsArray], {
+        name: 'xterm-color',
+        cols: 80,
+        rows: 30,
+        cwd: process.cwd(),
+        env: {
+          ...process.env,
+          FORCE_COLOR: "0",
+          TERM: "xterm-256color"
+        }
+      });
+    } else {
+      childProcess = spawn("node", ["clipi.js", ...argsArray], {
+        env: {
+          ...process.env,
+          FORCE_COLOR: "0",
+          TERM: "xterm-256color"
+        },
+        stdio: ['ignore', 'pipe', 'pipe']
+      });
+    }
 
     let output = "";
     let errorOutput = "";
-    
-    childProcess.stdout.on("data", (data) => {
-      const text = data.toString();
-      output += text;
-      
-      if (output.includes("started on") || output.includes("CLIPI started")) {
-        setTimeout(() => {
-          if (keepAlive) {
-            resolve({
-              getOutput: () => stripAnsi(output + errorOutput),
-              process: childProcess
-            });
-          } else {
-            childProcess.kill('SIGTERM');
-          }
-        }, 100);
-      }
-    });
 
-    childProcess.stderr.on("data", (data) => {
-      errorOutput += data.toString();
-    });
+    if (interactive) {
+      childProcess.onData((data) => {
+        output += data;
 
-    if (!keepAlive) {
+        if (output.includes("started on") || output.includes("CLIPI started")) {
+          setTimeout(() => {
+            if (keepAlive) {
+              resolve({
+                getOutput: () => stripAnsi(output + errorOutput),
+                process: childProcess,
+                sendInput: (data) => {
+                  childProcess.write(data);
+                }
+              });
+            } else {
+              childProcess.kill('SIGTERM');
+            }
+          }, 100);
+        }
+      });
+    } else {
+      childProcess.stdout.on("data", (data) => {
+        const text = data.toString();
+        output += text;
+
+        if (output.includes("started on") || output.includes("CLIPI started")) {
+          setTimeout(() => {
+            if (keepAlive) {
+              resolve({
+                getOutput: () => stripAnsi(output + errorOutput),
+                process: childProcess
+              });
+            } else {
+              childProcess.kill('SIGTERM');
+            }
+          }, 100);
+        }
+      });
+
+      childProcess.stderr.on("data", (data) => {
+        errorOutput += data.toString();
+      });
+    }
+
+    if (!keepAlive && !interactive) {
       childProcess.on('exit', () => {
         resolve(stripAnsi(output + errorOutput));
       });
@@ -182,6 +244,7 @@ describe("CLIPI E2E", async () => {
   exampleResponseFromCurl = execSync("curl --proxy http://127.0.0.2:8080 http://example.com --silent -v 2>&1", { encoding: "utf8" });
   await sleep(0.1);
   const httpExampleRequestHostOutput = getOutput();
+  clipiProcess.kill();
   it("Should bind to 127.0.0.2:8080 with --host 127.0.0.2 flag", () => {
     expect(httpExampleRequestHostOutput).toContain("CLIPI started on 127.0.0.2:8080");
   });
@@ -195,6 +258,7 @@ describe("CLIPI E2E", async () => {
   exampleResponseFromCurl = execSync("curl --proxy http://127.0.0.1:8081 http://example.com --silent -v 2>&1", { encoding: "utf8" });
   await sleep(0.1);
   const httpExampleRequestPortOutput = getOutput();
+  clipiProcess.kill();
   it("Should bind to 127.0.0.1:8081 with --port 8081 flag", () => {
     expect(httpExampleRequestPortOutput).toContain("CLIPI started on 127.0.0.1:8081");
   });
@@ -236,5 +300,67 @@ describe("CLIPI E2E", async () => {
   await deleteFile("requests.log");
   await moveFile("backup.requests.log", "requests.log");
 
+
+
+  /* INTERCEPR FLAG */
+  // Test --intercept works
+  ({ getOutput, process: clipiProcess } = await runCLIPI("--intercept", true));
+  await sleep(0.1);
+  const curlProcess = spawn("curl", [
+    "--proxy", "http://127.0.0.1:8080",
+    "https://example.com",
+    "--cacert", `${process.env.HOME}/.clipi/certs/ca-cert.pem`,
+    "--silent", "-v"
+  ], { 
+    shell: true,
+    stdio: 'pipe'
+  });
+
+  let exampleResponseFromCurlAsync = "";
+  curlProcess.stdout.on('data', d => exampleResponseFromCurlAsync += d.toString());
+  curlProcess.stderr.on('data', d => exampleResponseFromCurlAsync += d.toString());
+  curlProcess.kill();
+  await sleep(0.1);
+  const httpsExampleRequestInterceptOutput = getOutput();
+  
+  clipiProcess.kill();
+  it("Should detect --intercept flag as ACTIVE", () => {
+    expect(httpsExampleRequestInterceptOutput).toContain("Intercept mode: ACTIVE");
+  });
+
+
+
+
+  // Test --intercept forward request works
+  let sendInput;
+  ({ getOutput, process: clipiProcess, sendInput } = await runCLIPI("--intercept", true, true));
+
+  await sleep(0.1);
+  const curlProcessForward = spawn("curl", [
+  "--proxy", "http://127.0.0.1:8080",
+  "https://example.com",
+  "--cacert", `${process.env.HOME}/.clipi/certs/ca-cert.pem`,
+  "--silent", "-v"
+], {
+  shell: true,
+  stdio: 'pipe'
+});
+  await sleep(2);
+  let exampleResponseFromCurlAsync2 = "";
+  curlProcessForward.stdout.on('data', d => exampleResponseFromCurlAsync2 += d.toString());
+  curlProcessForward.stderr.on('data', d => exampleResponseFromCurlAsync2 += d.toString());
+  const httpsExampleRequestInterceptForwardOutput = getOutput();
+  it("Should show Forward option", () => {
+    expect(httpsExampleRequestInterceptForwardOutput).toContain("Forward - Send request as-is");
+  });
+
+  // Send ENTER to CLIPI to select forward option.
+  await sleep(0.5);
+  sendInput('\n');
+  await sleep(2);
+  it("Should Forward https://example.com response request body to CURL", () => {
+    expect(exampleResponseFromCurlAsync2).toContain('<!doctype html><html lang="en"><head><title>Example Domain</title>');
+  });
+  clipiProcess.kill();
 
 });

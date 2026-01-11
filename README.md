@@ -221,7 +221,7 @@ I made the tests in a very "unique" way. This is because the test are expected t
 
 ##### Test results
 ```bash
-(01:52:05:9272) /root/2026/CLIPI
+(03:41:46:3097) /root/2026/CLIPI
 > npm test
 
 > clipi@1.1.0 test
@@ -230,9 +230,9 @@ I made the tests in a very "unique" way. This is because the test are expected t
 
  DEV  v4.0.16 /root/2026/CLIPI
 
- ✓ tests/integration/clipi.test.js (21 tests) 215ms
-   ✓ CLIPI E2E (21)
-     ✓ Should bind auto to 127.0.0.1:8080 11ms
+ ✓ tests/integration/clipi.test.js (24 tests) 227ms
+   ✓ CLIPI E2E (24)
+     ✓ Should bind auto to 127.0.0.1:8080 13ms
      ✓ Should start in passive intercept mode 1ms
      ✓ Should get example.com HTTP request in pasive mode 1ms
      ✓ Should get 200 HTTP status code from example.com request in pasive mode 2ms
@@ -248,16 +248,19 @@ I made the tests in a very "unique" way. This is because the test are expected t
      ✓ Should get example.com HTML body from CURL output with --port 8081 flag 1ms
      ✓ Should detect --log flag as ENABLED 2ms
      ✓ Should create file requests.log 4ms
-     ✓ should log session start 1ms
-     ✓ should log headers 1ms
-     ✓ should log example.com request headers 1ms
-     ✓ should log example.com response headers 5ms
-     ✓ should log example.com HTTPS response body 1ms
+     ✓ Should log session start 1ms
+     ✓ Should log headers 1ms
+     ✓ Should log example.com request headers 1ms
+     ✓ Should log example.com response headers 2ms
+     ✓ Should log example.com HTTPS response body 1ms
+     ✓ Should detect --intercept flag as ACTIVE 4ms
+     ✓ Should show Forward option 2ms
+     ✓ Should Forward https://example.com response request body to CURL 1ms
 
  Test Files  1 passed (1)
-      Tests  21 passed (21)
-   Start at  01:52:13
-   Duration  15.24s (transform 202ms, setup 0ms, import 13.21s, tests 215ms, environment 1ms)
+      Tests  24 passed (24)
+   Start at  03:41:51
+   Duration  23.30s (transform 228ms, setup 0ms, import 21.19s, tests 227ms, environment 1ms)
 ```
 
 ## Security Warning
