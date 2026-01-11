@@ -203,7 +203,6 @@ describe("CLIPI E2E", async () => {
   }); 
 
 
-  // Logging: ENABLED → requests.log
   // Test --log works
   await moveFile("requests.log", "backup.requests.log");
   ({ getOutput, process: clipiProcess } = await runCLIPI("--log", true));
@@ -219,19 +218,19 @@ describe("CLIPI E2E", async () => {
     await checkFile("requests.log"); 
   });
   const logFileContent = await getFileContent("requests.log");
-  it("should log session start", () => {
+  it("Should log session start", () => {
     expect(logFileContent).toContain("CLIPI Log - Session started at");
   });
-  it("should log headers", () => {
+  it("Should log headers", () => {
     expect(logFileContent).toContain("] Headers: {");
   });
-  it("should log example.com request headers", () => {
+  it("Should log example.com request headers", () => {
     expect(logFileContent).toContain('"host": "example.com",');
   });
-  it("should log example.com response headers", () => {
+  it("Should log example.com response headers", () => {
     expect(logFileContent).toContain('"allow": "GET, HEAD",');
   });
-  it("should log example.com HTTPS response body", () => {
+  it("Should log example.com HTTPS response body", () => {
     expect(logFileContent).toContain('Body: <!doctype html><html lang="en"><head><title>Example Domain</title>');
   });
   await deleteFile("requests.log");
