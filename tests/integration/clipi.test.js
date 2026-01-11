@@ -361,6 +361,60 @@ describe("CLIPI E2E", async () => {
   it("Should Forward https://example.com response request body to CURL", () => {
     expect(exampleResponseFromCurlAsync2).toContain('<!doctype html><html lang="en"><head><title>Example Domain</title>');
   });
+
+
+
+  // Drop request
+  const curlProcessDrop = spawn("curl", [
+  "--proxy", "http://127.0.0.1:8080",
+  "https://example.com",
+  "--cacert", `${process.env.HOME}/.clipi/certs/ca-cert.pem`,
+  "--silent", "-v"
+], {
+  shell: true,
+  stdio: 'pipe'
+});
+  await sleep(2);
+  let exampleResponseFromCurlAsync3 = "";
+  curlProcessDrop.stdout.on('data', d => exampleResponseFromCurlAsync3 += d.toString());
+  curlProcessDrop.stderr.on('data', d => exampleResponseFromCurlAsync3 += d.toString())
+
+  await sleep(2);
+  const httpsExampleRequestInterceptDropOutput = getOutput();
+  it("Should show Drop option", () => {
+    expect(httpsExampleRequestInterceptDropOutput).toContain("✗ Drop");
+  });
+
+  // Send ARROW_UP & ENTER to CLIPI to select drop option.
+  await sleep(0.5);
+  sendInput("\x1b[A");
+  await sleep(0.1);
+  sendInput('\n');
+  await sleep(2);
+  const httpsExampleRequestInterceptDrop2Output = getOutput();
+  it("Should show drop message confirmation", () => {
+    expect(httpsExampleRequestInterceptDrop2Output).toContain("[✗] Request dropped");
+  });
+  
+  it("Should show Request blocked by proxy response", () => {
+    expect(exampleResponseFromCurlAsync3).toContain("Request blocked by proxy");
+  });
+
+
   clipiProcess.kill();
 
+
+/*
+// up
+sendInput('\x1b[A');
+
+// down
+sendInput('\x1b[B');
+
+// left
+sendInput('\x1b[D');
+
+// right
+sendInput('\x1b[C');
+*/
 });
