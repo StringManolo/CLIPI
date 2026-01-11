@@ -219,7 +219,46 @@ I made the tests in a very "unique" way. This is because the test are expected t
 - Test are shorter, both to write and to read, reusing code for multiple tests.
 - Tests run much faster than usual because they are reusing a single process for multiple test instead of starting an independent node process for each test case.
 
+##### Test results
+```bash
+(01:52:05:9272) /root/2026/CLIPI
+> npm test
 
+> clipi@1.1.0 test
+> vitest
+
+
+ DEV  v4.0.16 /root/2026/CLIPI
+
+ ✓ tests/integration/clipi.test.js (21 tests) 215ms
+   ✓ CLIPI E2E (21)
+     ✓ Should bind auto to 127.0.0.1:8080 11ms
+     ✓ Should start in passive intercept mode 1ms
+     ✓ Should get example.com HTTP request in pasive mode 1ms
+     ✓ Should get 200 HTTP status code from example.com request in pasive mode 2ms
+     ✓ Should get example.com server headers from CURL output 2ms
+     ✓ Should get example.com HTML body from CURL output 1ms
+     ✓ Should get example.com HTTPS CONNECT request in pasive mode 1ms
+     ✓ Should get example.com HTTPS request in pasive mode 1ms
+     ✓ Should get 200 HTTP status code from example.com request in Secure pasive mode 2ms
+     ✓ Should get https://example.com HTML body from CURL output 1ms
+     ✓ Should bind to 127.0.0.2:8080 with --host 127.0.0.2 flag 1ms
+     ✓ Should get example.com HTML body from CURL output with --host 127.0.0.2 flag 1ms
+     ✓ Should bind to 127.0.0.1:8081 with --port 8081 flag 2ms
+     ✓ Should get example.com HTML body from CURL output with --port 8081 flag 1ms
+     ✓ Should detect --log flag as ENABLED 2ms
+     ✓ Should create file requests.log 4ms
+     ✓ should log session start 1ms
+     ✓ should log headers 1ms
+     ✓ should log example.com request headers 1ms
+     ✓ should log example.com response headers 5ms
+     ✓ should log example.com HTTPS response body 1ms
+
+ Test Files  1 passed (1)
+      Tests  21 passed (21)
+   Start at  01:52:13
+   Duration  15.24s (transform 202ms, setup 0ms, import 13.21s, tests 215ms, environment 1ms)
+```
 
 ## Security Warning
 **For educational and authorized testing only. Do not use on systems without permission.**

@@ -1,5 +1,47 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { spawn, execSync } from "child_process";
+import { access, constants, readFile, rename, unlink } from 'fs/promises';
+
+const checkFile = async path => {
+  try {
+    await access(path, constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const getFileContent = async path => {
+  try {
+    const data = await readFile(path, 'utf8');
+    return data;
+  } catch (error) {
+    console.error('Error al leer:', error.message);
+    return null;
+  }
+}
+
+const moveFile = async (source, destination) => {
+  try {
+    await access(source, constants.F_OK);
+    await rename(source, destination);
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      throw error;
+    }
+  }
+}
+
+const deleteFile = async path => {
+  try {
+    await access(path, constants.F_OK);
+    await unlink(path);
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      throw error;
+    }
+  }
+}
 
 const sleep = async s => await new Promise(resolve => setTimeout(resolve, s * 1000));
 
@@ -93,7 +135,7 @@ describe("CLIPI E2E", async () => {
   });
 
   // Test proxy with curl using HTTP
-  let{ getOutput, process: clipiProcess } = await runCLIPI("", true);
+  let { getOutput, process: clipiProcess } = await runCLIPI("", true);
   await sleep(0.1);
   let exampleResponseFromCurl = execSync("curl --proxy http://127.0.0.1:8080 http://example.com --silent -v 2>&1", { encoding: "utf8" });
   await sleep(0.1);
@@ -161,5 +203,39 @@ describe("CLIPI E2E", async () => {
   }); 
 
 
-  
+  // Logging: ENABLED → requests.log
+  // Test --log works
+  await moveFile("requests.log", "backup.requests.log");
+  ({ getOutput, process: clipiProcess } = await runCLIPI("--log", true));
+  await sleep(0.1);
+  exampleResponseFromCurl = execSync("curl --proxy http://127.0.0.1:8080 https://example.com --cacert ~/.clipi/certs/ca-cert.pem --silent -v 2>&1", { encoding: "utf8" });
+  await sleep(0.1);
+  const httpsExampleRequestLogOutput = getOutput();
+  clipiProcess.kill();
+  it("Should detect --log flag as ENABLED", () => {
+    expect(httpsExampleRequestLogOutput).toContain("Logging: ENABLED → requests.log");
+  });
+  it("Should create file requests.log", async () => {
+    await checkFile("requests.log"); 
+  });
+  const logFileContent = await getFileContent("requests.log");
+  it("should log session start", () => {
+    expect(logFileContent).toContain("CLIPI Log - Session started at");
+  });
+  it("should log headers", () => {
+    expect(logFileContent).toContain("] Headers: {");
+  });
+  it("should log example.com request headers", () => {
+    expect(logFileContent).toContain('"host": "example.com",');
+  });
+  it("should log example.com response headers", () => {
+    expect(logFileContent).toContain('"allow": "GET, HEAD",');
+  });
+  it("should log example.com HTTPS response body", () => {
+    expect(logFileContent).toContain('Body: <!doctype html><html lang="en"><head><title>Example Domain</title>');
+  });
+  await deleteFile("requests.log");
+  await moveFile("backup.requests.log", "requests.log");
+
+
 });
