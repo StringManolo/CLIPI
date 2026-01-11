@@ -82,6 +82,7 @@ describe("CLIPI E2E", async () => {
     }    
   });
 
+  // Test the software starts in default mode without flags
   const clipiOutputNoArgs = await runCLIPI();
   it("Should bind auto to 127.0.0.1:8080", () => {
     expect(clipiOutputNoArgs).toContain("CLIPI started on 127.0.0.1:8080");
@@ -91,7 +92,7 @@ describe("CLIPI E2E", async () => {
     expect(clipiOutputNoArgs).toContain("Intercept mode: PASSIVE");
   });
 
-
+  // Test proxy with curl using HTTP
   let{ getOutput, process: clipiProcess } = await runCLIPI("", true);
   await sleep(0.1);
   let exampleResponseFromCurl = execSync("curl --proxy http://127.0.0.1:8080 http://example.com --silent -v 2>&1", { encoding: "utf8" });
@@ -111,7 +112,8 @@ describe("CLIPI E2E", async () => {
     expect(exampleResponseFromCurl).toContain("<title>Example Domain</title>");
   });
 
-  // check cert creation
+
+  // Test proxy with curl using HTTPS and MITM with custom certs
   ({ getOutput, process: clipiProcess } = await runCLIPI("", true));
   await sleep(0.1);
   exampleResponseFromCurl = execSync("curl --proxy http://127.0.0.1:8080 https://example.com --cacert ~/.clipi/certs/ca-cert.pem --silent -v 2>&1", { encoding: "utf8" });
@@ -132,7 +134,7 @@ describe("CLIPI E2E", async () => {
   });
 
 
-
+  // Test --host flag works
   ({ getOutput, process: clipiProcess } = await runCLIPI("--host 127.0.0.2", true));
   await sleep(0.1);
   exampleResponseFromCurl = execSync("curl --proxy http://127.0.0.2:8080 http://example.com --silent -v 2>&1", { encoding: "utf8" });
@@ -145,9 +147,6 @@ describe("CLIPI E2E", async () => {
     expect(exampleResponseFromCurl).toContain("<title>Example Domain</title>");
   }); 
 
+
   
-  /* 
-   *
-   * ./clipi.js --host 127.0.0.2
-   */
 });
