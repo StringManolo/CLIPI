@@ -3,27 +3,6 @@ import { spawn, execSync } from "child_process";
 import { access, constants, readFile, rename, unlink } from 'fs/promises';
 import pty from 'node-pty';
 
-/*
-const killAndWait = async (process) => {
-  if (!process || process.killed) return;
-  
-  process.kill('SIGTERM');
-  
-  await new Promise((resolve) => {
-    const timeout = setTimeout(resolve, 200);
-    process.once('exit', () => {
-      clearTimeout(timeout);
-      resolve();
-    });
-  });
-  
-  if (!process.killed) {
-    process.kill('SIGKILL');
-  }
-};
-*/
-
-
 const checkFile = async path => {
   try {
     await access(path, constants.F_OK);
@@ -69,32 +48,30 @@ const sleep = async s => await new Promise(resolve => setTimeout(resolve, s * 10
 
 const stripAnsi = (str) => str.replace(/\u001b\[[0-9;]*m/g, '');
 
-const runCLIPI = (args = "", keepAlive = false, interactive = false) => {
+const runCLIPI = (args = "", keepAlive = false, interactive = false, customEnv = {}) => {
   return new Promise((resolve, reject) => {
     const argsArray = args.trim() ? args.trim().split(/\s+/) : [];
-    
+
     let childProcess;
-    
+
+    const env = {
+      ...process.env,
+      FORCE_COLOR: "0",
+      TERM: "xterm-256color",
+      ...customEnv  // Permite override de variables de entorno
+    };
+
     if (interactive) {
-      // Usar pty para emular un terminal real
       childProcess = pty.spawn("node", ["clipi.js", ...argsArray], {
         name: 'xterm-color',
         cols: 80,
         rows: 30,
         cwd: process.cwd(),
-        env: {
-          ...process.env,
-          FORCE_COLOR: "0",
-          TERM: "xterm-256color"
-        }
+        env: env
       });
     } else {
       childProcess = spawn("node", ["clipi.js", ...argsArray], {
-        env: {
-          ...process.env,
-          FORCE_COLOR: "0",
-          TERM: "xterm-256color"
-        },
+        env: env,
         stdio: ['ignore', 'pipe', 'pipe']
       });
     }
@@ -172,18 +149,26 @@ const isCurlInstalled = () => {
   }
 };
 
-
-
-
-
-
+const isEdInstalled = () => {
+  try {
+    execSync("ed --version", { stdio: 'ignore' });
+    return true;
+  } catch(err) {
+    return false;
+  }
+};
 
 describe("CLIPI E2E", async () => {
-  // Make sure curl is installed cuz this tests are using it to test the proxy
+  // Make sure curl and ed are installed cuz this tests are using them for testing proxy features
   beforeAll(() => {
     if (!isCurlInstalled()) {
       throw new Error("\n\n❌ curl is required to run integration tests. Please install curl first.\n");
-    }    
+    }
+    
+    if (!isEdInstalled()) {
+      throw new Error("\n\n❌ ed is required to run integration tests. Please install ed first.\n");
+    }
+
   });
 
   // Test the software starts in default mode without flags
@@ -205,7 +190,7 @@ describe("CLIPI E2E", async () => {
   clipiProcess.kill();
   it("Should get example.com HTTP request in pasive mode", () => {
     expect(httpExampleRequestOutput).toContain("[1] GET example.com/");
-  }); 
+  });
   it("Should get 200 HTTP status code from example.com request in pasive mode", () => {
     expect(httpExampleRequestOutput).toContain("200 OK");
   });
@@ -250,7 +235,7 @@ describe("CLIPI E2E", async () => {
   });
   it("Should get example.com HTML body from CURL output with --host 127.0.0.2 flag", () => {
     expect(exampleResponseFromCurl).toContain("<title>Example Domain</title>");
-  }); 
+  });
 
   // Test --port flag works
   ({ getOutput, process: clipiProcess } = await runCLIPI("--port 8081", true));
@@ -264,7 +249,7 @@ describe("CLIPI E2E", async () => {
   });
   it("Should get example.com HTML body from CURL output with --port 8081 flag", () => {
     expect(exampleResponseFromCurl).toContain("<title>Example Domain</title>");
-  }); 
+  });
 
 
   // Test --log works
@@ -279,7 +264,7 @@ describe("CLIPI E2E", async () => {
     expect(httpsExampleRequestLogOutput).toContain("Logging: ENABLED → requests.log");
   });
   it("Should create file requests.log", async () => {
-    await checkFile("requests.log"); 
+    await checkFile("requests.log");
   });
   const logFileContent = await getFileContent("requests.log");
   it("Should log session start", () => {
@@ -302,7 +287,7 @@ describe("CLIPI E2E", async () => {
 
 
 
-  /* INTERCEPR FLAG */
+  /* INTERCEPT FLAG */
   // Test --intercept works
   ({ getOutput, process: clipiProcess } = await runCLIPI("--intercept", true));
   await sleep(0.1);
@@ -311,7 +296,7 @@ describe("CLIPI E2E", async () => {
     "https://example.com",
     "--cacert", `${process.env.HOME}/.clipi/certs/ca-cert.pem`,
     "--silent", "-v"
-  ], { 
+  ], {
     shell: true,
     stdio: 'pipe'
   });
@@ -322,7 +307,7 @@ describe("CLIPI E2E", async () => {
   curlProcess.kill();
   await sleep(0.1);
   const httpsExampleRequestInterceptOutput = getOutput();
-  
+
   clipiProcess.kill();
   it("Should detect --intercept flag as ACTIVE", () => {
     expect(httpsExampleRequestInterceptOutput).toContain("Intercept mode: ACTIVE");
@@ -364,6 +349,7 @@ describe("CLIPI E2E", async () => {
 
 
 
+
   // Drop request
   const curlProcessDrop = spawn("curl", [
   "--proxy", "http://127.0.0.1:8080",
@@ -395,26 +381,121 @@ describe("CLIPI E2E", async () => {
   it("Should show drop message confirmation", () => {
     expect(httpsExampleRequestInterceptDrop2Output).toContain("[✗] Request dropped");
   });
-  
+
   it("Should show Request blocked by proxy response", () => {
     expect(exampleResponseFromCurlAsync3).toContain("Request blocked by proxy");
   });
 
 
+
+
+
+
+  // Modify request with ed editor
+  clipiProcess.kill();
+  ({ getOutput, process: clipiProcess, sendInput } = await runCLIPI("--intercept", true, true, {
+    EDITOR: "ed",
+    VISUAL: "ed"
+  }));
+
+  await sleep(0.1);
+  const curlProcessModify = spawn("curl", [
+    "--proxy", "http://127.0.0.1:8080",
+    "https://example.com",
+    "--cacert", `${process.env.HOME}/.clipi/certs/ca-cert.pem`,
+    "--silent", "-v"
+  ], {
+    shell: true,
+    stdio: 'pipe'
+  });
+
+  await sleep(2);
+  let exampleResponseFromCurlAsync4 = "";
+  curlProcessModify.stdout.on('data', d => exampleResponseFromCurlAsync4 += d.toString());
+  curlProcessModify.stderr.on('data', d => exampleResponseFromCurlAsync4 += d.toString())
+
+  await sleep(2);
+  const httpsExampleRequestInterceptModifyOutput = getOutput();
+  it("Should show modify option", () => {
+    expect(httpsExampleRequestInterceptModifyOutput).toContain("Modify");
+  });
+
+  // Select modify (arrow down + enter)
+  await sleep(0.5);
+  sendInput("\x1b[B"); // Arrow down
+  await sleep(0.1);
+  sendInput('\n'); // enter to select modify option
+  await sleep(1);
+
+  // send q to quit ed
+  sendInput('q\n');
+  await sleep(2);
+
+  const httpsExampleRequestInterceptModify2Output = getOutput();
+  it("Should detect request modified", () => {
+    expect(httpsExampleRequestInterceptModify2Output).toContain("[✓] Request modified");
+  });
+
+  await sleep(1);
+  it("Should get response after closing editor without changes", () => {
+    expect(exampleResponseFromCurlAsync4).toContain('<!doctype html><html lang="en"><head><title>Example Domain</title>');
+  });
+  curlProcessModify.kill();
+  
+
+
+
+  // Modify request replacing "GET / HTTP/1.1" by "POST / HTTP/1.1" 
+  const curlProcessModifyPost = spawn("curl", [
+    "--proxy", "http://127.0.0.1:8080",
+    "https://example.com",
+    "--cacert", `${process.env.HOME}/.clipi/certs/ca-cert.pem`,
+    "--silent", "-v"
+  ], {
+    shell: true,
+    stdio: 'pipe'
+  });
+
+  await sleep(2);
+  let exampleResponseFromCurlAsync5 = "";
+  curlProcessModifyPost.stdout.on('data', d => exampleResponseFromCurlAsync5 += d.toString());
+  curlProcessModifyPost.stderr.on('data', d => exampleResponseFromCurlAsync5 += d.toString())
+
+  await sleep(2);
+  const httpsExampleRequestInterceptModifyPostOutput = getOutput();
+  it("Should show modify option", () => {
+    expect(httpsExampleRequestInterceptModifyPostOutput).toContain("Modify");
+  });
+
+  // Select modify (arrow down + enter)
+  await sleep(0.5);
+  sendInput("\x1b[B"); // Arrow down
+  await sleep(0.1);
+  sendInput('\n'); // enter to select modify option
+  await sleep(1);
+
+  // replace GET by POST
+  sendInput("1s/GET/POST/\n");
+  // send wq to save and quit ed
+  sendInput('wq\n');
+  await sleep(2);
+
+  const httpsExampleRequestInterceptModifyPost2Output = getOutput();
+  it("Should detect request modified", () => {
+    expect(httpsExampleRequestInterceptModifyPost2Output).toContain("[✓] Request modified");
+  });
+
+  it("Should get 405 Method Not Allowed from CLIPI", () => {
+    expect(httpsExampleRequestInterceptModifyPost2Output).toContain("405 Method Not Allowed");
+  });
+
+  it("Should get 405 Method Not Allowed from curl -v", () => {
+    expect(exampleResponseFromCurlAsync5).toContain("405 Method Not Allowed");
+  });
+
+
+  curlProcessModify.kill();
   clipiProcess.kill();
 
-
-/*
-// up
-sendInput('\x1b[A');
-
-// down
-sendInput('\x1b[B');
-
-// left
-sendInput('\x1b[D');
-
-// right
-sendInput('\x1b[C');
-*/
+  // TODO: Cleanup on test fails
 });

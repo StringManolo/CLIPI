@@ -221,8 +221,8 @@ I made the tests in a very "unique" way. This is because the test are expected t
 
 ##### Test results
 ```bash
-(04:02:33:5913) /root/2026/CLIPI
-> npm test
+(02:44:40:3646) /root/2026/CLIPI
+> npm run test
 
 > clipi@1.1.0 test
 > vitest
@@ -230,40 +230,47 @@ I made the tests in a very "unique" way. This is because the test are expected t
 
  DEV  v4.0.16 /root/2026/CLIPI
 
- ✓ tests/integration/clipi.test.js (27 tests) 223ms
-   ✓ CLIPI E2E (27)
-     ✓ Should bind auto to 127.0.0.1:8080 11ms
-     ✓ Should start in passive intercept mode 2ms
+ ✓ tests/integration/clipi.test.js (34 tests) 341ms
+   ✓ CLIPI E2E (34)
+     ✓ Should bind auto to 127.0.0.1:8080 12ms
+     ✓ Should start in passive intercept mode 1ms
      ✓ Should get example.com HTTP request in pasive mode 1ms
      ✓ Should get 200 HTTP status code from example.com request in pasive mode 2ms
      ✓ Should get example.com server headers from CURL output 2ms
      ✓ Should get example.com HTML body from CURL output 1ms
-     ✓ Should get example.com HTTPS CONNECT request in pasive mode 1ms
+     ✓ Should get example.com HTTPS CONNECT request in pasive mode 5ms
      ✓ Should get example.com HTTPS request in pasive mode 1ms
-     ✓ Should get 200 HTTP status code from example.com request in Secure pasive mode 2ms
-     ✓ Should get https://example.com HTML body from CURL output 1ms
+     ✓ Should get 200 HTTP status code from example.com request in Secure pasive mode 7ms
+     ✓ Should get https://example.com HTML body from CURL output 2ms
      ✓ Should bind to 127.0.0.2:8080 with --host 127.0.0.2 flag 1ms
      ✓ Should get example.com HTML body from CURL output with --host 127.0.0.2 flag 1ms
      ✓ Should bind to 127.0.0.1:8081 with --port 8081 flag 2ms
-     ✓ Should get example.com HTML body from CURL output with --port 8081 flag 1ms
+     ✓ Should get example.com HTML body from CURL output with --port 8081 flag 2ms
      ✓ Should detect --log flag as ENABLED 2ms
      ✓ Should create file requests.log 5ms
-     ✓ Should log session start 1ms
-     ✓ Should log headers 1ms
+     ✓ Should log session start 2ms
+     ✓ Should log headers 3ms
      ✓ Should log example.com request headers 1ms
      ✓ Should log example.com response headers 2ms
-     ✓ Should log example.com HTTPS response body 1ms
+     ✓ Should log example.com HTTPS response body 2ms
      ✓ Should detect --intercept flag as ACTIVE 1ms
      ✓ Should show Forward option 1ms
-     ✓ Should Forward https://example.com response request body to CURL 4ms
-     ✓ Should show Drop option 2ms
+     ✓ Should Forward https://example.com response request body to CURL 3ms
+     ✓ Should show Drop option 1ms
      ✓ Should show drop message confirmation 1ms
      ✓ Should show Request blocked by proxy response 1ms
+     ✓ Should show modify option 1ms
+     ✓ Should detect request modified 1ms
+     ✓ Should get response after closing editor without changes 1ms
+     ✓ Should show modify option 1ms
+     ✓ Should detect request modified 1ms
+     ✓ Should get 405 Method Not Allowed from CLIPI 1ms
+     ✓ Should get 405 Method Not Allowed from curl -v 2ms
 
  Test Files  1 passed (1)
-      Tests  27 passed (27)
-   Start at  04:02:39
-   Duration  29.21s (transform 171ms, setup 0ms, import 27.69s, tests 223ms, environment 1ms)
+      Tests  34 passed (34)
+   Start at  02:44:47
+   Duration  47.12s (transform 271ms, setup 0ms, import 45.00s, tests 341ms, environment 1ms)
 ```
 
 ## Security Warning
