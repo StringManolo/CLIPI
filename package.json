@@ -21,11 +21,15 @@
   "main": "clipi.js",
   "scripts": {
     "start": "node clipi.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "vitest"
   },
   "dependencies": {
     "node-forge": "^1.3.3",
     "prompts": "^2.4.2",
     "simpleargumentsparser": "^2.0.0"
+  },
+  "devDependencies": {
+    "node-pty": "^1.1.0",
+    "vitest": "^4.0.16"
   }
 }

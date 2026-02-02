@@ -142,3 +142,4 @@ vite.config.ts.timestamp-*
 requests.log
 dummy.txt
 curl-*.sh
+ed.hup
