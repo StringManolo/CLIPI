@@ -4,7 +4,7 @@ SCRIPT_DIR="$(dirname "$(readlink -f "$0")")"
 CLIPI_BIN="$SCRIPT_DIR/../../clipi.js"
 SERVER_JS="$SCRIPT_DIR/server.js"
 URL="http://127.0.0.1:3000"
-HISTORY_FILE="$SCRIPT_DIR/.clipi_history"
+HISTORY_FILE="$SCRIPT_DIR/.cromite_history"
 
 touch "$HISTORY_FILE"
 
@@ -21,13 +21,13 @@ node "$SERVER_JS" &
 
 sleep 2
 
-echo "--- CLIPI NATIVE CLI ---"
+echo "--- CROMITE CLI ---"
 echo "Use arrows to navigate history and edit lines."
 
 while true; do
   echo ""
   history -r "$HISTORY_FILE"
-  read -e -p "clipi > " IN
+  read -e -p "cromite > " IN
   
   if [[ "$IN" == "exit" ]]; then cleanup; fi
   

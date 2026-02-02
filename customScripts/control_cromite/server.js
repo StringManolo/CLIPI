@@ -36,19 +36,21 @@ const server = http.createServer(async (req, res) => {
       try {
         const data = JSON.parse(body);
         if (req.url === '/data') {
+          
           console.log(`\n\x1b[32m[DATA]\x1b[0m From: ${data.url}`);
           console.table(data.results.slice(0, 15));
           await fs.writeFile(`scrape_${Date.now()}.json`, body);
           res.end('OK');
         } else if (req.url === '/spy') {
           console.log(`\n\x1b[33m[SPY]\x1b[0m Selector: \x1b[36m${data.selector}\x1b[0m`);
-          console.log(`  Suggest: clipi.page.click('${data.selector}')`);
+          console.log(`  Suggest: cromite.page.click('${data.selector}')`);
           res.end('OK');
         } else {
           currentCommand = data;
           res.end('OK');
         }
       } catch (e) {
+        console.log(e);
         res.writeHead(400);
         res.end();
       }
